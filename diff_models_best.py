@@ -5,6 +5,8 @@ import math
 import copy
 from layers.S4Layer import S4Layer
 from layers.Attention import *
+from layers.Mamba_EncDec import Encoder, EncoderLayer
+from mamba_ssm import Mamba
 
 
 def get_torch_trans(heads=8, layers=1, channels=64):
@@ -105,6 +107,7 @@ class diff_CSDI_best(nn.Module):
 class ResidualBlock(nn.Module):
     def __init__(self, config, side_dim, channels, diffusion_embedding_dim, nheads):
         self.length = config["eval_length"]
+        d_state = 64
         super().__init__()
         self.diffusion_projection = nn.Linear(diffusion_embedding_dim, channels)
         # self.linear_layer = nn.Linear(128, 64)
@@ -114,76 +117,23 @@ class ResidualBlock(nn.Module):
         self.mid_projection = Conv1d_with_init(channels, 2 * channels, 1)
         self.output_projection = Conv1d_with_init(channels, 2 * channels, 1)
 
-        self.time_layer = get_torch_trans(heads=nheads, layers=1, channels=channels)
-        self.feature_layer = get_torch_trans(heads=nheads, layers=1, channels=channels)
-        self.s4_init_layer = S4Layer(features=channels, lmax=100)
+        # self.time_layer = get_torch_trans(heads=nheads, layers=1, channels=channels)
+        # self.feature_layer = get_torch_trans(heads=nheads, layers=1, channels=channels)
+        # self.s4_init_layer = S4Layer(features=channels, lmax=100)
 
-        # self.time_layer = EncoderLayer(
-        #     d_time=32,
-        #     d_feature=72,
-        #     d_model=channels,
-        #     d_inner=64,
-        #     n_head=nheads,
-        #     d_k=64,
-        #     d_v=64,
-        #     dropout=0.1,
-        #     attn_dropout=0,
-        # )
-        # self.feature_layer = EncoderLayer(
-        #     d_time=72,
-        #     d_feature=32,
-        #     d_model=channels,
-        #     d_inner=64,
-        #     n_head=nheads,
-        #     d_k=64,
-        #     d_v=64,
-        #     dropout=0.1,
-        #     attn_dropout=0,
-        # )
+        self.time_layer = Mamba(
+            d_model=channels,  # Model dimension d_model
+            d_state=d_state,  # SSM state expansion factor
+            d_conv=2,  # Local convolution width
+            expand=1,  # Block expansion factor)
+        )
 
-        # self.feature_layer = EncoderLayer(
-        #     d_time=32,
-        #     actual_d_feature=72,
-        #     d_model=channels,
-        #     d_inner=64,
-        #     n_head=nheads,
-        #     d_k=64,
-        #     d_v=64,
-        #     dropout=0.1,
-        #     attn_dropout=0,
-        # )
-
-        # self.w_tf = nn.Linear(2 * channels, channels)
-
-        # self.transformer_layer = get_torch_trans(heads=nheads, layers=1, channels=channels)
-
-    # def forward_transformer(self, y, base_shape):
-    #     # print(base_shape)
-    #     B, channel, K, L = base_shape
-    #     if L == 1 or K == 1:
-    #         return y
-    #     y = y.reshape(B, channel, K, L).permute(2, 3, 0, 1).reshape(K * L, B, channel)
-    #     y = self.transformer_layer(y).permute(1, 2, 0)
-    #     y = y.reshape(B, K, channel, L).permute(0, 2, 1, 3).reshape(B, channel, K * L)
-    #     return y
-
-    def forward_imputation(self, y, base_shape):
-        B, channel, K, L = base_shape
-        # enc_out = self.enc_embedding(x_enc, x_mark_enc)
-        # x = x.reshape(B, channel, K, L).permute(1, 0, 2, 3)
-        # y = torch.zeros(channel, B, K, L).cuda()
-        # for i in range(channel):
-        #     y[i], attns = self.transformer_layer(x[i], attn_mask=None)
-        # y = y.permute(1, 0, 2, 3).reshape(B, channel, K * L)
-
-        # x, attns = self.transformer_layer(x.permute(2, 3, 0, 1), attn_mask=None)
-        # x = x.reshape(B, K, channel, L).permute(0, 2, 1, 3).reshape(B, channel, K * L)
-        # dec_out = self.projection(enc_out)
-        y = y.reshape(B, channel, K, L).reshape(B, channel, K * L)
-        y, attens = self.transformer_layer(y.permute(2, 0, 1))
-        y = y.permute(1, 2, 0)
-        y = y.reshape(B, K, channel, L).permute(0, 2, 1, 3).reshape(B, channel, K * L)
-        return y
+        self.feature_layer = Mamba(
+            d_model=channels,  # Model dimension d_model
+            d_state=d_state,  # SSM state expansion factor
+            d_conv=2,  # Local convolution width
+            expand=1,  # Block expansion factor)
+        )
 
     def forward_time(self, y, base_shape):
         B, channel, K, L = base_shape
@@ -205,26 +155,6 @@ class ResidualBlock(nn.Module):
         y = y.reshape(B, L, channel, K).permute(0, 2, 3, 1).reshape(B, channel, K * L)
         return y
 
-    def forward_attention_time(self, y, base_shape):
-        B, channel, K, L = base_shape
-        if L == 1:
-            return y
-        y = y.reshape(B, channel, K, L).permute(0, 2, 1, 3).reshape(B * K, channel, L)
-        y, attens = self.time_layer(y.permute(0, 2, 1))
-        y = y.permute(0, 2, 1)
-        y = y.reshape(B, K, channel, L).permute(0, 2, 1, 3).reshape(B, channel, K * L)
-        return y
-
-    def forward_attention_feature(self, y, base_shape):
-        B, channel, K, L = base_shape
-        if L == 1:
-            return y
-        y = y.reshape(B, channel, K, L).permute(0, 3, 1, 2).reshape(B * L, channel, K)
-        y, attens = self.feature_layer(y.permute(0, 2, 1))
-        y = y.permute(0, 2, 1)
-        y = y.reshape(B, K, channel, L).permute(0, 2, 3, 1).reshape(B, channel, K * L)
-        return y
-
     def forward(self, x, cond_info, diffusion_emb):
         B, channel, K, L = x.shape
         base_shape = x.shape
@@ -235,7 +165,7 @@ class ResidualBlock(nn.Module):
 
         # y = self.forward_attention(y, base_shape)
 
-        y = self.s4_init_layer(y.permute(2, 0, 1)).permute(1, 2, 0)
+        # y = self.s4_init_layer(y.permute(2, 0, 1)).permute(1, 2, 0)
 
         O_t_time = self.forward_time(y, base_shape)
         O_t_feature = self.forward_feature(y, base_shape)  # (B,channel,K*L)

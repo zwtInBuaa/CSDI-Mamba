@@ -34,7 +34,7 @@ parser.add_argument("--validationindex", type=int, default=0, help="index of mon
 parser.add_argument("--nsample", type=int, default=100)
 parser.add_argument("--unconditional", action="store_true")
 
-parser.add_argument("--diffmodel", type=int, default=0)
+parser.add_argument("--diffmodel", type=int, default=1)
 parser.add_argument("--lossort", type=float, default=0.0)
 
 args = parser.parse_args()
