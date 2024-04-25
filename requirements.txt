@@ -11,3 +11,4 @@ mamba-ssm
 scipy
 pytorch_lightning
 opt_einsum
+torchcde

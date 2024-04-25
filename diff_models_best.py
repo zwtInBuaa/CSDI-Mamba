@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 import copy
-from layers.S4Layer import S4Layer
 from layers.Attention import *
 from layers.Mamba_EncDec import Encoder, EncoderLayer
 from mamba_ssm import Mamba
