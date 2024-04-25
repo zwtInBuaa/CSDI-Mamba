@@ -126,7 +126,7 @@ class ResidualBlock(nn.Module):
             d_state=d_state,  # SSM state expansion factor
             d_conv=2,  # Local convolution width
             expand=1,  # Block expansion factor)
-        ) 
+        )
 
         self.feature_layer = Mamba(
             d_model=channels,  # Model dimension d_model
