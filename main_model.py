@@ -262,7 +262,7 @@ class CSDI_base(nn.Module):
 
 
 class CSDI_PM25(CSDI_base):
-    def __init__(self, config, device, target_dim=32):
+    def __init__(self, config, device, target_dim=36):
         super(CSDI_PM25, self).__init__(target_dim, config, device)
 
     def process_data(self, batch):
